@@ -1,242 +1,179 @@
-#include <math.h>
-#include <stdarg.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
 #include "libretro.h"
+#include "physfs.h"
 
-static uint32_t* frame_buf;
-static struct retro_log_callback logging;
-static retro_log_printf_t log_cb;
-static bool use_audio_cb;
+#include <rl_config.h>
+#include <rl_sound.h>
 
-static void fallback_log(enum retro_log_level level, const char* fmt, ...) {
+#include <stdlib.h>
+#include <time.h>
+
+#define WIDTH 320
+#define HEIGHT 240
+#define COUNT 8
+
+typedef struct
+{
+  rl_sound_t music;
+  rl_sound_t sound;
+} state_t;
+
+static void dummy_log(enum retro_log_level level, const char* fmt, ...) {
   (void)level;
-  va_list va;
-  va_start(va, fmt);
-  vfprintf(stderr, fmt, va);
-  va_end(va);
+  (void)fmt;
 }
 
-void retro_init(void) {
-  frame_buf = calloc(320 * 240, sizeof(uint32_t));
+static retro_video_refresh_t video_cb;
+static retro_input_poll_t input_poll_cb;
+static retro_environment_t env_cb;
+static retro_log_printf_t log_cb = dummy_log;
+static retro_audio_sample_batch_t audio_cb;
+
+static state_t state;
+
+void retro_get_system_info(struct retro_system_info* info) {
+  info->library_name = "rnull0";
+  info->library_version = "0.1";
+  info->need_fullpath = true;
+  info->block_extract = false;
+  info->valid_extensions = "zip|null0|wasm";
 }
 
-void retro_deinit(void) {
-  free(frame_buf);
-  frame_buf = NULL;
+void retro_set_environment(retro_environment_t cb) {
+  env_cb = cb;
+
+  bool yes = true;
+  cb(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &yes);
 }
 
 unsigned retro_api_version(void) {
   return RETRO_API_VERSION;
 }
 
-void retro_set_controller_port_device(unsigned port, unsigned device) {
-  log_cb(RETRO_LOG_INFO, "Plugging device %u into port %u.\n", device, port);
+void retro_init(void) {
+  struct retro_log_callback log;
+
+  if (env_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &log)) {
+    log_cb = log.log;
+  }
 }
 
-void retro_get_system_info(struct retro_system_info* info) {
-  memset(info, 0, sizeof(*info));
-  info->library_name = "TestCore";
-  info->library_version = "v1";
-  info->need_fullpath = false;
-  info->valid_extensions = NULL;  // Anything is fine, we don't care.
+bool retro_load_game(const struct retro_game_info* info) {
+  enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_RGB565;
+
+  if (!env_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt)) {
+    log_cb(RETRO_LOG_ERROR, "retroluxury needs RGB565\n");
+    return false;
+  }
+
+  PHYSFS_init("null0");
+  PHYSFS_mount(".", NULL, 0);
+
+  rl_sound_init();
+
+  rl_sound_stream(&state.music, "/amen.wav");
+  rl_sound_sfxr(&state.sound, RL_SOUND_SFXR_COIN, 1);
+
+  rl_sound_play(&state.music, 0.2f, 1);
+
+  rl_sound_play(&state.sound, 1.0f, 0);
+
+  return true;
 }
 
-static retro_video_refresh_t video_cb;
-static retro_audio_sample_t audio_cb;
-static retro_audio_sample_batch_t audio_batch_cb;
-static retro_environment_t environ_cb;
-static retro_input_poll_t input_poll_cb;
-static retro_input_state_t input_state_cb;
-
-void retro_get_system_av_info(struct retro_system_av_info* info) {
-  float aspect = 4.0f / 3.0f;
-  float sampling_rate = 30000.0f;
-
-  info->timing = (struct retro_system_timing){
-      .fps = 60.0,
-      .sample_rate = sampling_rate,
-  };
-
-  info->geometry = (struct retro_game_geometry){
-      .base_width = 320,
-      .base_height = 240,
-      .max_width = 320,
-      .max_height = 240,
-      .aspect_ratio = aspect,
-  };
+size_t retro_get_memory_size(unsigned id) {
+  return 0;
 }
 
-void retro_set_environment(retro_environment_t cb) {
-  environ_cb = cb;
-
-  bool no_content = true;
-  cb(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &no_content);
-
-  if (cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &logging))
-    log_cb = logging.log;
-  else
-    log_cb = fallback_log;
-}
-
-void retro_set_audio_sample(retro_audio_sample_t cb) {
-  audio_cb = cb;
-}
-
-void retro_set_audio_sample_batch(retro_audio_sample_batch_t cb) {
-  audio_batch_cb = cb;
-}
-
-void retro_set_input_poll(retro_input_poll_t cb) {
-  input_poll_cb = cb;
-}
-
-void retro_set_input_state(retro_input_state_t cb) {
-  input_state_cb = cb;
+void* retro_get_memory_data(unsigned id) {
+  return NULL;
 }
 
 void retro_set_video_refresh(retro_video_refresh_t cb) {
   video_cb = cb;
 }
 
-static unsigned x_coord;
-static unsigned y_coord;
-static unsigned phase;
-static int mouse_rel_x;
-static int mouse_rel_y;
-
-void retro_reset(void) {
-  x_coord = 0;
-  y_coord = 0;
+void retro_set_audio_sample(retro_audio_sample_t cb) {
+  (void)cb;
 }
 
-static void update_input(void) {
-  input_poll_cb();
-  if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP)) {
-  }
+void retro_set_audio_sample_batch(retro_audio_sample_batch_t cb) {
+  audio_cb = cb;
 }
 
-static void render_checkered(void) {
-  uint32_t* buf = frame_buf;
-  unsigned stride = 320;
-  uint32_t color_r = 0xff << 16;
-  uint32_t color_g = 0xff << 8;
-
-  uint32_t* line = buf;
-  for (unsigned y = 0; y < 240; y++, line += stride) {
-    unsigned index_y = ((y - y_coord) >> 4) & 1;
-    for (unsigned x = 0; x < 320; x++) {
-      unsigned index_x = ((x - x_coord) >> 4) & 1;
-      line[x] = (index_y ^ index_x) ? color_r : color_g;
-    }
-  }
-
-  for (unsigned y = mouse_rel_y - 5; y <= mouse_rel_y + 5; y++)
-    for (unsigned x = mouse_rel_x - 5; x <= mouse_rel_x + 5; x++)
-      buf[y * stride + x] = 0xff;
-
-  video_cb(buf, 320, 240, stride << 2);
+void retro_set_input_state(retro_input_state_t cb) {
+  (void)cb;
 }
 
-static void check_variables(void) {}
-
-static void audio_callback(void) {
-  for (unsigned i = 0; i < 30000 / 60; i++, phase++) {
-    int16_t val = 0x800 * sinf(2.0f * M_PI * phase * 300.0f / 30000.0f);
-    audio_cb(val, val);
-  }
-
-  phase %= 100;
+void retro_set_input_poll(retro_input_poll_t cb) {
+  input_poll_cb = cb;
 }
 
-static void audio_set_state(bool enable) {
-  (void)enable;
+void retro_get_system_av_info(struct retro_system_av_info* info) {
+  const rl_config_t* config = rl_get_config();
+
+  info->geometry.base_width = WIDTH;
+  info->geometry.base_height = HEIGHT;
+  info->geometry.max_width = WIDTH + config->backgrnd_margin;
+  info->geometry.max_height = HEIGHT;
+  info->geometry.aspect_ratio = 0.0f;
+  info->timing.fps = config->frame_rate;
+  info->timing.sample_rate = config->sample_rate;
 }
 
 void retro_run(void) {
-  update_input();
-  render_checkered();
-  if (!use_audio_cb)
-    audio_callback();
-
-  bool updated = false;
-  if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
-    check_variables();
+  const rl_config_t* config = rl_get_config();
+  input_poll_cb();
+  audio_cb(rl_sound_mix(), config->samples_per_frame);
 }
 
-bool retro_load_game(const struct retro_game_info* info) {
-  enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_XRGB8888;
-  if (!environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt)) {
-    log_cb(RETRO_LOG_INFO, "XRGB8888 is not supported.\n");
-    return false;
-  }
-
-  struct retro_audio_callback audio_cb = {audio_callback, audio_set_state};
-  use_audio_cb = environ_cb(RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK, &audio_cb);
-
-  check_variables();
-
-  (void)info;
-  return true;
+void retro_deinit(void) {
 }
 
-void retro_unload_game(void) {}
-
-unsigned retro_get_region(void) {
-  return RETRO_REGION_NTSC;
+void retro_set_controller_port_device(unsigned port, unsigned device) {
+  (void)port;
+  (void)device;
 }
 
-bool retro_load_game_special(unsigned type,
-                             const struct retro_game_info* info,
-                             size_t num) {
-  if (type != 0x200)
-    return false;
-  if (num != 2)
-    return false;
-  return retro_load_game(NULL);
+void retro_reset(void) {
 }
 
 size_t retro_serialize_size(void) {
-  return 2;
+  log_cb(RETRO_LOG_INFO, "Returning 4k byte state size\n");
+  return 4096;
 }
 
-bool retro_serialize(void* data_, size_t size) {
-  if (size < 2)
-    return false;
-
-  uint8_t* data = data_;
-  data[0] = x_coord;
-  data[1] = y_coord;
+bool retro_serialize(void* data, size_t size) {
+  log_cb(RETRO_LOG_INFO, "Sarializing %zu bytes to %p\n", size, data);
   return true;
 }
 
-bool retro_unserialize(const void* data_, size_t size) {
-  if (size < 2)
-    return false;
-
-  const uint8_t* data = data_;
-  x_coord = data[0] & 31;
-  y_coord = data[1] & 31;
+bool retro_unserialize(const void* data, size_t size) {
+  log_cb(RETRO_LOG_INFO, "Unserializing %zu bytes from %p\n", size, data);
   return true;
 }
 
-void* retro_get_memory_data(unsigned id) {
-  (void)id;
-  return NULL;
+void retro_cheat_reset(void) {
 }
 
-size_t retro_get_memory_size(unsigned id) {
-  (void)id;
-  return 0;
+void retro_cheat_set(unsigned a, bool b, const char* c) {
+  (void)a;
+  (void)b;
+  (void)c;
 }
 
-void retro_cheat_reset(void) {}
+bool retro_load_game_special(unsigned a, const struct retro_game_info* b, size_t c) {
+  (void)a;
+  (void)b;
+  (void)c;
+  return false;
+}
 
-void retro_cheat_set(unsigned index, bool enabled, const char* code) {
-  (void)index;
-  (void)enabled;
-  (void)code;
+void retro_unload_game(void) {
+  rl_sound_destroy(&state.sound);
+  rl_sound_destroy(&state.music);
+  rl_sound_done();
+}
+
+unsigned retro_get_region(void) {
+  return RETRO_REGION_PAL;
 }
