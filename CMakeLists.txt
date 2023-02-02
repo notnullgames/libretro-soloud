@@ -2,10 +2,6 @@ cmake_minimum_required(VERSION 3.16.3)
 
 project(soloud_example)
 
-set(CMAKE_CXX_STANDARD 11 CACHE STRING "The C++ standard to use")
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-
 find_package(Git QUIET)
 if(GIT_FOUND AND EXISTS "${PROJECT_SOURCE_DIR}/.git")
 # Update submodules as needed
